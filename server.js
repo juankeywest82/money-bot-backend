@@ -12,7 +12,7 @@ allowedHeaders: [‘Content-Type’, ‘Authorization’]
 app.options(’*’, cors());
 app.use(express.json());
 
-app.post(’/api/chat’, async (req, res) => {
+app.post(’/chat’, async (req, res) => {
 try {
 const response = await fetch(‘https://api.anthropic.com/v1/messages’, {
 method: ‘POST’,
