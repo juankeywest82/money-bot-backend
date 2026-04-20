@@ -153,20 +153,11 @@ app.get('/sessions/:sessionId/messages', auth, async (req, res) => {
   }
 });
 
-app.post('/chat', auth, async (req, res) => {
-  const { messages, sessionId, reachedSummary } = req.body;
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-        'anthropic-beta': 'interleaved-thinking-2025-05-14'
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
+headers: {
+  'Content-Type': 'application/json',
+  'x-api-key': process.env.ANTHROPIC_API_KEY,
+  'anthropic-version': '2023-06-01'
+},
 
     if (sessionId) {
       const lastMessage = messages[messages.length - 1];
