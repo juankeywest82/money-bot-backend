@@ -154,8 +154,16 @@ app.get('/sessions/:sessionId/messages', auth, async (req, res) => {
 });
 
 app.post('/chat', auth, async (req, res) => {
-  const { messages, sessionId, reachedSummary } = req.body;
+  const { messages, sessionId, reachedSummary, model, max_tokens, system } = req.body;
   try {
+    // Only pass fields Anthropic accepts — never pass sessionId, reachedSummary, etc.
+    const anthropicPayload = {
+      model: model || 'claude-sonnet-4-20250514',
+      max_tokens: max_tokens || 1000,
+      system,
+      messages
+    };
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -163,13 +171,18 @@ app.post('/chat', auth, async (req, res) => {
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01'
       },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(anthropicPayload)
     });
     const data = await response.json();
 
-    if (sessionId) {
+    // Log any Anthropic errors for visibility
+    if (data.error) {
+      console.error('Anthropic API error:', JSON.stringify(data.error));
+      return res.status(502).json({ error: 'AI service error', detail: data.error });
+    }
+
+    if (sessionId && messages?.length) {
       const lastMessage = messages[messages.length - 1];
-      // Encrypt before storing
       await pool.query(
         'INSERT INTO messages (session_id, role, content) VALUES ($1, $2, $3)',
         [sessionId, lastMessage.role, encrypt(lastMessage.content)]
@@ -182,15 +195,23 @@ app.post('/chat', auth, async (req, res) => {
       }
       await pool.query(
         'UPDATE sessions SET exchange_count = exchange_count + 1, last_active = NOW(), reached_summary = COALESCE($1, reached_summary) WHERE id = $2',
-        [reachedSummary || null, sessionId]
+        [reachedSummary === true ? true : null, sessionId]
       );
     }
 
     res.json(data);
   } catch (err) {
+    console.error('Chat route error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
+
+// Keep-alive ping — prevents Render free tier from sleeping
+setInterval(() => {
+  fetch(`https://money-bot-backend-3zqg.onrender.com/`)
+    .then(() => console.log('Keep-alive ping sent'))
+    .catch(err => console.error('Keep-alive failed:', err.message));
+}, 10 * 60 * 1000); // every 10 minutes
 
 app.get('/', (req, res) => res.send('Money bot backend running.'));
 
