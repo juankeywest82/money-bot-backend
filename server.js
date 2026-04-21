@@ -60,6 +60,15 @@ async function initDB() {
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
+  // Fix cascade constraints on existing tables
+  await pool.query(`
+    ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_user_id_fkey;
+    ALTER TABLE sessions ADD CONSTRAINT sessions_user_id_fkey
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_session_id_fkey;
+    ALTER TABLE messages ADD CONSTRAINT messages_session_id_fkey
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE;
+  `);
   console.log('Database initialized');
 }
 initDB();
@@ -109,13 +118,27 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Delete account + all data
+// Delete account + all data (explicit order to avoid foreign key constraint issues)
 app.delete('/account', auth, async (req, res) => {
   try {
+    // Get all session IDs for this user
+    const sessions = await pool.query('SELECT id FROM sessions WHERE user_id = $1', [req.user.id]);
+    const sessionIds = sessions.rows.map(r => r.id);
+
+    // Delete messages first
+    if (sessionIds.length > 0) {
+      await pool.query('DELETE FROM messages WHERE session_id = ANY($1)', [sessionIds]);
+    }
+
+    // Then delete sessions
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [req.user.id]);
+
+    // Then delete user
     await pool.query('DELETE FROM users WHERE id = $1', [req.user.id]);
-    // sessions and messages cascade-delete automatically via ON DELETE CASCADE
+
     res.json({ success: true, message: 'Account and all data permanently deleted.' });
   } catch (err) {
+    console.error('Delete account error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
